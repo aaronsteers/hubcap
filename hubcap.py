@@ -111,12 +111,12 @@ def download(url):
     return file_buf
 
 def get_sha1(url):
-    print("    downloading: {}".format(url))
+    print(f"    downloading: {url}")
     contents = download(url)
     hasher = hashlib.sha1()
     hasher.update(contents)
     digest = hasher.hexdigest()
-    print("      SHA1: {}".format(digest))
+    print(f"      SHA1: {digest}")
     return digest
 
 def get_project(git_path):
@@ -131,7 +131,7 @@ def get_project(git_path):
     return Project.from_project_root(git_path, renderer)
 
 def make_spec(org, repo, version, git_path):
-    tarball_url = "https://codeload.github.com/{}/{}/tar.gz/{}".format(org, repo, version)
+    tarball_url = f"https://codeload.github.com/{org}/{repo}/tar.gz/{version}"
     sha1 = get_sha1(tarball_url)
 
     project = get_project(git_path)
@@ -139,7 +139,7 @@ def make_spec(org, repo, version, git_path):
     package_name = project.project_name
 
     return {
-        "id": "{}/{}/{}".format(org, package_name, version),
+        "id": f"{org}/{package_name}/{version}",
         "name": package_name,
         "version": version,
         "published_at": NOW_ISO,
@@ -147,19 +147,15 @@ def make_spec(org, repo, version, git_path):
         "works_with": [],
         "_source": {
             "type": "github",
-            "url": "https://github.com/{}/{}/tree/{}/".format(org, repo, version),
-            "readme": "https://raw.githubusercontent.com/{}/{}/{}/README.md".format(org, repo, version)
+            "url": f"https://github.com/{org}/{repo}/tree/{version}/",
+            "readme": f"https://raw.githubusercontent.com/{org}/{repo}/{version}/README.md",
         },
-        "downloads": {
-            "tarball": tarball_url,
-            "format": "tgz",
-            "sha1": sha1
-        }
+        "downloads": {"tarball": tarball_url, "format": "tgz", "sha1": sha1},
     }
 
 
 def make_index(org_name, repo, existing, tags, git_path):
-    description = "dbt models for {}".format(repo)
+    description = f"dbt models for {repo}"
     assets = {
         "logo": "logos/placeholder.svg".format(repo)
     }
@@ -178,7 +174,7 @@ def make_index(org_name, repo, existing, tags, git_path):
             version_tag = dbt.semver.VersionSpecifier.from_version_string(tag)
             version_tags.append(version_tag)
         except dbt.exceptions.SemverException as e:
-            print("Semver exception for {}. Skipping\n  {}".format(repo, e))
+            print(f"Semver exception for {repo}. Skipping\n  {e}")
 
     # find latest tag which is not a prerelease
     latest = version_tags[0]
@@ -197,7 +193,7 @@ def make_index(org_name, repo, existing, tags, git_path):
     }
 
 def get_hub_versions(org, repo):
-    url = 'https://hub.getdbt.com/api/v1/{}/{}.json'.format(org, repo)
+    url = f'https://hub.getdbt.com/api/v1/{org}/{repo}.json'
     resp = requests.get(url).json()
     return {r['version'] for r in resp['versions'].values()}
 
@@ -205,10 +201,10 @@ new_branches = {}
 for org_name, repos in TRACKED_REPOS.items():
     for repo in repos:
         try:
-            clone_url = 'https://github.com/{}/{}.git'.format(org_name, repo)
+            clone_url = f'https://github.com/{org_name}/{repo}.git'
             git_path = os.path.join(TMP_DIR, repo)
 
-            print("Cloning repo {}".format(clone_url))
+            print(f"Cloning repo {clone_url}")
             if os.path.exists(git_path):
                 dbt.clients.system.rmdir(git_path)
 
@@ -220,8 +216,8 @@ for org_name, repos in TRACKED_REPOS.items():
             package_name = project.project_name
 
             existing_tags = [i['version'] for i in index[org_name][package_name]]
-            print("  Found Tags: {}".format(sorted(tags)))
-            print("  Existing Tags: {}".format(sorted(existing_tags)))
+            print(f"  Found Tags: {sorted(tags)}")
+            print(f"  Existing Tags: {sorted(existing_tags)}")
 
             new_tags = set(tags) - set(existing_tags)
 
@@ -231,12 +227,12 @@ for org_name, repos in TRACKED_REPOS.items():
 
             # check out a new branch for the changes
             if ONE_BRANCH_PER_REPO:
-                branch_name = 'bump-{}-{}-{}'.format(org_name, repo, NOW)
+                branch_name = f'bump-{org_name}-{repo}-{NOW}'
             else:
-                branch_name = 'bump-{}'.format(NOW)
+                branch_name = f'bump-{NOW}'
 
             index_path = os.path.join(TMP_DIR, "ROOT")
-            print("    Checking out branch {} in meta-index".format(branch_name))
+            print(f"    Checking out branch {branch_name} in meta-index")
 
             try:
                 out, err = dbt.clients.system.run_cmd(index_path, ['git', 'checkout', branch_name])
@@ -261,7 +257,7 @@ for org_name, repos in TRACKED_REPOS.items():
             dbt.clients.system.write_file(index_file_path, json.dumps(new_index_entry, indent=4))
 
             for i, tag in enumerate(sorted(new_tags)):
-                print("    Adding tag: {}".format(tag))
+                print(f"    Adding tag: {tag}")
 
                 import dbt.semver
                 try:
@@ -270,46 +266,44 @@ for org_name, repos in TRACKED_REPOS.items():
                         raw_tag = tag[1:]
                     dbt.semver.VersionSpecifier.from_version_string(raw_tag)
                 except dbt.exceptions.SemverException:
-                    print("Not semver {}. Skipping".format(raw_tag))
+                    print(f"Not semver {raw_tag}. Skipping")
                     continue
 
-                version_path = os.path.join(repo_dir, "{}.json".format(tag))
+                version_path = os.path.join(repo_dir, f"{tag}.json")
 
                 package_spec = make_spec(org_name, repo, tag, git_path)
                 dbt.clients.system.write_file(version_path, json.dumps(package_spec, indent=4))
 
-                msg = "hubcap: Adding tag {} for {}/{}".format(tag, org_name, repo)
+                msg = f"hubcap: Adding tag {tag} for {org_name}/{repo}"
                 print("      running `git add`")
                 res = dbt.clients.system.run_cmd(repo_dir, ['git', 'add', '-A'])
                 if len(res[1]):
-                    print("ERROR" + res[1].decode())
+                    print(f"ERROR{res[1].decode()}")
                 print("      running `git commit`")
-                res = dbt.clients.system.run_cmd(repo_dir, ['git', 'commit', '-am', '{}'.format(msg)])
+                res = dbt.clients.system.run_cmd(repo_dir, ['git', 'commit', '-am', f'{msg}'])
                 if len(res[1]):
-                    print("ERROR" + res[1].decode())
+                    print(f"ERROR{res[1].decode()}")
 
             # good house keeping
             dbt.clients.system.run_cmd(index_path, ['git', 'checkout', 'master'])
             print()
 
         except dbt.exceptions.SemverException as e:
-            print("Semver exception. Skipping\n  {}".format(e))
+            print(f"Semver exception. Skipping\n  {e}")
 
         except Exception as e:
-            print("Unhandled exception. Skipping\n  {}".format(e))
-
-        except RuntimeError as e:
-            print("Unhandled exception. Skipping\n  {}".format(e))
+            print(f"Unhandled exception. Skipping\n  {e}")
 
 def make_pr(ORG, REPO, head):
     url = 'https://api.github.com/repos/fishtown-analytics/hub.getdbt.com/pulls'
     body = {
-        "title": "HubCap: Bump {}/{}".format(ORG, REPO),
+        "title": f"HubCap: Bump {ORG}/{REPO}",
         "head": head,
         "base": "master",
-        "body": "Auto-bumping from new release at https://github.com/{}/{}/releases".format(ORG, REPO),
-        "maintainer_can_modify": True
+        "body": f"Auto-bumping from new release at https://github.com/{ORG}/{REPO}/releases",
+        "maintainer_can_modify": True,
     }
+
     body = json.dumps(body)
 
     user = config['user']['name']
@@ -326,14 +320,14 @@ def get_open_prs():
 
 def is_open_pr(prs, ORG, REPO):
     for pr in prs:
-        value = '{}/{}'.format(ORG, REPO)
+        value = f'{ORG}/{REPO}'
         if value in pr['title']:
             return True
 
     return False
 
 # push new branches, if there are any
-print("Push branches? {} - {}".format(PUSH_BRANCHES, list(new_branches.keys())))
+print(f"Push branches? {PUSH_BRANCHES} - {list(new_branches.keys())}")
 if PUSH_BRANCHES and len(new_branches) > 0:
     hub_dir = os.path.join(TMP_DIR, "ROOT")
     try:
@@ -346,7 +340,7 @@ if PUSH_BRANCHES and len(new_branches) > 0:
     for branch, info in new_branches.items():
         # don't open a PR if one is already open
         if is_open_pr(open_prs, info['org'], info['repo']):
-            print("PR is already open for {}/{}. Skipping.".format(info['org'], info['repo']))
+            print(f"PR is already open for {info['org']}/{info['repo']}. Skipping.")
             continue
 
         try:
@@ -356,7 +350,7 @@ if PUSH_BRANCHES and len(new_branches) > 0:
             except dbt.exceptions.CommandResultError as e:
                 print(e.stderr.decode())
 
-            print("Pushing and PRing for {}/{}".format(info['org'], info['repo']))
+            print(f"Pushing and PRing for {info['org']}/{info['repo']}")
             res = dbt.clients.system.run_cmd(hub_dir, ['git', 'push', 'hub', branch])
             print(res[1].decode())
             make_pr(info['org'], info['repo'], branch)
